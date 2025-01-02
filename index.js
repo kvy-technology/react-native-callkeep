@@ -100,10 +100,18 @@ class RNCallKeep {
 
   setSettings = (settings) => RNCallKeepModule.setSettings(settings[isIOS ? 'ios' : 'android']);
 
-  registerPhoneAccount = (options) => {
+  registerPhoneAccount = async (options) => {
     if (isIOS) {
       return;
     }
+
+    const showAccountAlert = await RNCallKeepModule.checkPhoneAccountPermission(options.additionalPermissions || []);
+    const shouldOpenAccounts = await this._alert(options, showAccountAlert);
+
+    if (shouldOpenAccounts) {
+      RNCallKeepModule.openPhoneAccounts();
+    }
+
     RNCallKeepModule.registerPhoneAccount(options.android);
   };
 
@@ -161,7 +169,7 @@ class RNCallKeep {
     );
   };
 
-  checkIsInManagedCall = async () => isIOS? false: RNCallKeepModule.checkIsInManagedCall();
+  checkIsInManagedCall = async () => isIOS ? false : RNCallKeepModule.checkIsInManagedCall();
 
   answerIncomingCall = (uuid) => {
     RNCallKeepModule.answerIncomingCall(uuid);
@@ -338,18 +346,6 @@ class RNCallKeep {
 
   _setupAndroid = async (options) => {
     RNCallKeepModule.setup(options);
-
-    if (options.selfManaged) {
-      return false;
-    }
-
-    const showAccountAlert = await RNCallKeepModule.checkPhoneAccountPermission(options.additionalPermissions || []);
-    const shouldOpenAccounts = await this._alert(options, showAccountAlert);
-
-    if (shouldOpenAccounts) {
-      RNCallKeepModule.openPhoneAccounts();
-      return true;
-    }
 
     return false;
   };

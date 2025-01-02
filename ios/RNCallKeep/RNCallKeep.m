@@ -50,6 +50,9 @@ static NSString *const RNCallKeepDidLoadWithEvents = @"RNCallKeepDidLoadWithEven
 static bool isSetupNatively;
 static CXProvider* sharedProvider;
 
+// Store call data in a dictionary
+static NSMutableDictionary* callData;
+
 // should initialise in AppDelegate.m
 RCT_EXPORT_MODULE()
 
@@ -59,6 +62,10 @@ RCT_EXPORT_MODULE()
     NSLog(@"[RNCallKeep][init]");
 #endif
     if (self = [super init]) {
+        // TODO
+        // Init call data dictionary
+        if (callData == nil) callData = [[NSMutableDictionary alloc] init];
+
         _isStartCallActionEventListenerAdded = NO;
         _isReachable = NO;
         if (_delayedEvents == nil) _delayedEvents = [NSMutableArray array];
@@ -786,6 +793,12 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     callUpdate.hasVideo = hasVideo;
     callUpdate.localizedCallerName = localizedCallerName;
 
+    // Set call data dictionary
+    // Each call have a unique UUID, so we need store payload with different UUID
+    if(payload) {
+     [callData setObject:payload forKey:uuidString];
+    }
+
     [RNCallKeep initCallKitProvider];
     [sharedProvider reportNewIncomingCallWithUUID:uuid update:callUpdate completion:^(NSError * _Nullable error) {
         RNCallKeep *callKeep = [RNCallKeep allocWithZone: nil];
@@ -1081,7 +1094,17 @@ RCT_EXPORT_METHOD(reportUpdatedCall:(NSString *)uuidString contactIdentifier:(NS
     NSLog(@"[RNCallKeep][CXProviderDelegate][provider:performAnswerCallAction]");
 #endif
     [self configureAudioSession];
-    [self sendEventWithNameWrapper:RNCallKeepPerformAnswerCallAction body:@{ @"callUUID": [action.callUUID.UUIDString lowercaseString] }];
+
+
+    NSString *uuidString = [action.callUUID.UUIDString lowercaseString];
+
+    // Get call data dictionary
+    NSDictionary *payload = [callData objectForKey:uuidString];
+
+    [self sendEventWithNameWrapper:RNCallKeepPerformAnswerCallAction body:@{
+        @"callUUID": [action.callUUID.UUIDString lowercaseString],
+        @"payload": payload ? payload : @{}
+    }];
     [action fulfill];
 }
 
