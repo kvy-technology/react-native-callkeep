@@ -64,7 +64,31 @@ RCT_EXPORT_MODULE()
     if (self = [super init]) {
         // TODO
         // Init call data dictionary
-        if (callData == nil) callData = [[NSMutableDictionary alloc] init];
+        if (callData == nil) {
+            callData = [[NSMutableDictionary alloc] init];
+        }
+        
+        // Always restore persisted call data from JSON strings (even if callData exists)
+        // This handles cases where app is killed and restarted
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        NSDictionary *jsonCallData = [defaults dictionaryForKey:@"RNCallKeepCallDataJSON"];
+        
+        if (jsonCallData && [jsonCallData count] > 0) {
+            // Parse JSON strings back to dictionaries
+            for (NSString *uuid in jsonCallData) {
+                NSString *jsonString = jsonCallData[uuid];
+                NSData *jsonData = [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+                
+                if (jsonData) {
+                    NSError *jsonError = nil;
+                    NSDictionary *parsedPayload = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&jsonError];
+                    
+                    if (parsedPayload && !jsonError) {
+                        callData[uuid] = parsedPayload;
+                    }
+                }
+            }
+        }
 
         _isStartCallActionEventListenerAdded = NO;
         _isReachable = NO;
@@ -796,7 +820,31 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     // Set call data dictionary
     // Each call have a unique UUID, so we need store payload with different UUID
     if(payload) {
-     [callData setObject:payload forKey:uuidString];
+     // IMPORTANT: Use lowercase to match retrieval in performAnswerCallAction
+     NSString *normalizedUUID = [uuidString lowercaseString];
+     
+     // Store payload in memory
+     [callData setObject:payload forKey:normalizedUUID];
+     
+     // Convert payload to JSON string for persistent storage
+     NSError *jsonError = nil;
+     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jsonError];
+     
+     if (jsonData && !jsonError) {
+         NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+         
+         // Get existing stored JSON strings
+         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+         NSMutableDictionary *jsonCallData = [[defaults dictionaryForKey:@"RNCallKeepCallDataJSON"] mutableCopy];
+         if (!jsonCallData) {
+             jsonCallData = [NSMutableDictionary dictionary];
+         }
+         
+         // Store JSON string for this UUID
+         jsonCallData[normalizedUUID] = jsonString;
+         [defaults setObject:jsonCallData forKey:@"RNCallKeepCallDataJSON"];
+         [defaults synchronize];
+     }
     }
 
     [RNCallKeep initCallKitProvider];
@@ -1114,7 +1162,21 @@ RCT_EXPORT_METHOD(reportUpdatedCall:(NSString *)uuidString contactIdentifier:(NS
 #ifdef DEBUG
     NSLog(@"[RNCallKeep][CXProviderDelegate][provider:performEndCallAction]");
 #endif
-    [self sendEventWithNameWrapper:RNCallKeepPerformEndCallAction body:@{ @"callUUID": [action.callUUID.UUIDString lowercaseString] }];
+    NSString *uuidString = [action.callUUID.UUIDString lowercaseString];
+    [self sendEventWithNameWrapper:RNCallKeepPerformEndCallAction body:@{ @"callUUID": uuidString }];
+    
+    // Clean up call data from memory
+    [callData removeObjectForKey:uuidString];
+    
+    // Clean up JSON storage
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *jsonCallData = [[defaults dictionaryForKey:@"RNCallKeepCallDataJSON"] mutableCopy];
+    if (jsonCallData) {
+        [jsonCallData removeObjectForKey:uuidString];
+        [defaults setObject:jsonCallData forKey:@"RNCallKeepCallDataJSON"];
+        [defaults synchronize];
+    }
+    
     [action fulfill];
 }
 
